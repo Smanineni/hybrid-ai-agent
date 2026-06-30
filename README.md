@@ -1161,6 +1161,108 @@ code — they test FOUR things:
 
 ---
 
+#### STEP 5: RAG Engine
+
+**Q12. Walk me through your RAG pipeline end-to-end.**
+
+> **Answer:**
+> ```
+> User question
+>     ↓
+> Embed question → 384-dim vector (all-MiniLM-L6-v2)
+>     ↓
+> ChromaDB cosine similarity search → top-k chunks
+>     ↓
+> Stuff chunks into prompt as context
+>     ↓
+> GPT-4o generates answer grounded in those chunks
+>     ↓
+> Return: answer + source document names + chunk text used
+> ```
+>
+> **Java analogy:** Think of it as a search-before-answer pattern.
+> Before calling the LLM (your "business logic"), you first call a
+> search service (ChromaDB) to load the relevant data, then pass that
+> data into the service call. It's similar to how a Spring `@Service`
+> might first call a `@Repository` to load an entity before processing it.
+
+---
+
+**Q13. What is "context stuffing" and what are its limits?**
+
+> **Answer:**
+> Context stuffing means we take retrieved chunks and literally paste them
+> into the prompt so the LLM sees them as part of its input.
+>
+> ```
+> "Use the following documents to answer the question.
+>  Documents: [chunk1 text] [chunk2 text] [chunk3 text]
+>  Question: How many sick days do I get?"
+> ```
+>
+> **Limits:**
+> - **Token window:** GPT-4o has 128k tokens. If you stuff too many chunks,
+>   you hit the limit. We mitigate by controlling `k` (number of chunks).
+> - **Lost-in-the-middle problem:** LLMs pay more attention to text at the
+>   start and end of context. If the answer is in the middle of 20 chunks,
+>   accuracy drops. Fix: reranker (Step 3 of our stack).
+> - **Coherence:** Too many chunks from different documents can confuse the model.
+>   Fix: use a reranker to select only the most relevant 2–3 chunks.
+>
+> Alternative approach: **Map-Reduce** — summarise each chunk independently,
+> then combine summaries. Slower but handles very long documents.
+
+---
+
+**Q14. How do you measure RAG quality? What metrics do you use?**
+
+> **Answer:**
+> Three key metrics:
+>
+> | Metric | What it measures | How to compute |
+> |--------|-----------------|----------------|
+> | **Retrieval Recall** | Did we retrieve the right chunk? | Manually label 20 queries; check if the correct chunk is in top-k |
+> | **Answer Faithfulness** | Is the answer supported by the retrieved text? | LLM-as-judge: ask GPT to score whether the answer contradicts the chunks |
+> | **Answer Relevance** | Does the answer actually address the question? | Human or LLM evaluation on a test set |
+>
+> Tools: **RAGAS** (open-source RAG evaluation framework) automates all three.
+>
+> **Production monitoring:** Log every query + retrieved chunks + answer.
+> Sample 5% for human review. Track thumbs-down rate from the feedback UI.
+>
+> **Java analogy:** This is exactly like unit test coverage metrics —
+> you're measuring how often your system returns the "right" answer,
+> just like you'd measure line/branch coverage.
+
+---
+
+**Q15. What's the difference between a retriever and a reranker?**
+
+> **Answer:**
+> Two-stage pipeline:
+>
+> ```
+> Stage 1 — Retriever (fast, approximate):
+>   Embeds query → cosine similarity → returns top-20 candidates
+>   Uses: bi-encoder (two separate embeddings compared)
+>   Speed: milliseconds
+>
+> Stage 2 — Reranker (slow, precise):
+>   Takes all 20 candidates + original query together
+>   Uses: cross-encoder (reads query + document TOGETHER)
+>   Outputs: relevance score for each → returns top-3
+>   Speed: ~1 second per batch
+> ```
+>
+> **Why two stages?** The retriever is fast but approximate.
+> The reranker is accurate but slow — you can't run it on the whole database.
+> So: retrieve broadly, then rerank precisely. Same pattern as
+> Elasticsearch → business-logic scoring in Java search systems.
+>
+> We use **BGE-Reranker** (BAAI/bge-reranker-base) — a free, local cross-encoder.
+
+---
+
 ### 14.3 Scenario-Based Questions (Senior/TechLead Level)
 
 These are the questions that separate senior candidates from mid-level:
